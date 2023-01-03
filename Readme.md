@@ -16,11 +16,13 @@
 
 Windows
 
-## 开发环境
+## 依赖库
 
 Unity 2021.3.3f1c1
 
-XCharts 3.5   你
+[XCharts](https://github.com/XCharts-Team/XCharts) 3.5
+
+[Newtonsoft.Json](https://github.com/JamesNK/Newtonsoft.Json)
 
 ## 软件下载
 
