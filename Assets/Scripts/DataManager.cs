@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 public class DataManager : MonoBehaviour
 {
     public const int k_MainChartPeriod_s = 10; // 主图显示多少秒的心电图
-    public const int k_MainChartMovePeriod_s = 5; // 左右移动多少秒的心电图
+    public const int k_MainChartMovePeriod_s = 7; // 左右移动多少秒的心电图
     public const int k_MainChartFastMovePeriod_s = 60; // 左右快速移动多少秒的心电图
 
     public string ECGFilePath; // 若filepath为null，则意味着数据未读取，不进行绘图
