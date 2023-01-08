@@ -18,7 +18,7 @@ Windows
 
 ## 依赖库
 
-Unity 2021.3.3f1c1
+Unity 2021.3.16f1
 
 [XCharts](https://github.com/XCharts-Team/XCharts) 3.5
 
