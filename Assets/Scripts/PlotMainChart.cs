@@ -1,17 +1,21 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using XCharts.Runtime;
 
 [DisallowMultipleComponent]
 public class PlotMainChart : MonoBehaviour
 {
-    LineChart chart;
+    public LineChart chart;
     Line serieECG;
     const string k_serieECGName = "ECG";
 
     Scatter serieRPeak;
     const string k_serieRPeakName = "RPeak";
+
+    Scatter serieSegComment;
+    const string k_serieSegCommentName = "分割修改标记";
 
     // 只是为了显示图例而已
     Scatter seriePWave;
@@ -39,7 +43,7 @@ public class PlotMainChart : MonoBehaviour
         chart = gameObject.AddComponent<LineChart>();
         chart.Init(false);
         chart.SetSize(k_Width, k_Height);
-        
+
         Title title = chart.AddChartComponent<Title>();
         title.text = k_Title;
         title.show = true;
@@ -77,6 +81,19 @@ public class PlotMainChart : MonoBehaviour
         serieRPeak.itemStyle.color = Color.red;
         serieRPeak.symbol.size = 3f;
         serieRPeak.itemStyle.opacity = 0.8f; // 不透明度
+
+        serieSegComment = chart.AddSerie<Scatter>(k_serieSegCommentName, false);
+        serieSegComment.AnimationEnable(false);
+        serieSegComment.colorBy = SerieColorBy.Serie;
+        serieSegComment.itemStyle.color = Color.gray;
+        serieSegComment.symbol.size = 4.5f;
+        serieSegComment.itemStyle.borderWidth = 1f;
+        serieSegComment.itemStyle.borderColor = Color.black;
+        serieSegComment.itemStyle.opacity = 0.4f; // 不透明度
+        LabelStyle serieSegCommentLabelstyle = serieSegComment.AddExtraComponent<LabelStyle>();
+        serieSegCommentLabelstyle.show = true;
+        serieSegCommentLabelstyle.formatter = "{e}";
+        serieSegCommentLabelstyle.position = LabelStyle.Position.Top;
 
         // 只是为了显示图例而已
         seriePWave = chart.AddSerie<Scatter>(k_seriePWaveName, false);
@@ -125,8 +142,9 @@ public class PlotMainChart : MonoBehaviour
     {
         serieECG.ClearData();
         serieRPeak.ClearData();
+        serieSegComment.ClearData();
         chart.RemoveChartComponents<MarkArea>();
-        if (dataManager.ECGData.Count > 0 && dataManager.ECGDataFs > 0)
+        if (dataManager.IsValidPlotMainChart())
         {
             dataManager.Slider_MainChartTime.interactable = true;
             dataManager.Button_MainChartMoveForward.interactable = true;
@@ -151,9 +169,10 @@ public class PlotMainChart : MonoBehaviour
             yAxis.max = Math.Min(maxVal, k_MaxVal);
 
             // 绘制R波波峰
-            if (dataManager.AnnotationFs > 0 && dataManager.RPeakList.Count > 0 && dataManager.Toggle_ShowRPeakAnnotation.isOn)
+            if (dataManager.IsValidPlotRPeak())
             {
                 serieRPeak.show = true;
+                serieSegComment.show = true;
                 int anStPos = dataManager.RPeakList.BinarySearch((int)(dataManager.MainChartStTime_s * dataManager.AnnotationFs));
                 if (anStPos < 0)
                 {
@@ -164,14 +183,38 @@ public class PlotMainChart : MonoBehaviour
                     int ecgidx = (int)((dataManager.RPeakList[i] - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
                     serieRPeak.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos]);
                 }
+
+                // 分割修改标记
+                anStPos = dataManager.GetLowerBoundIndexOfSegCommentList((int)(dataManager.MainChartStTime_s * dataManager.AnnotationFs));
+                if (anStPos < 0)
+                {
+                    anStPos = ~anStPos;
+                }
+                for (int i = anStPos; i < dataManager.SegCommentList.Count && dataManager.SegCommentList[i].timeIndex <= (dataManager.MainChartStTime_s + DataManager.k_MainChartPeriod_s) * dataManager.AnnotationFs; i++)
+                {
+                    int ecgidx = (int)((dataManager.SegCommentList[i].timeIndex - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
+                    serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], SegCommentType.GetTip(dataManager.SegCommentList[i].type));
+                }
+
+                if (dataManager.CreateSegCommentTimeIndex != -1)
+                {
+                    if (dataManager.CreateSegCommentTimeIndex >= dataManager.MainChartStTime_s * dataManager.AnnotationFs && dataManager.CreateSegCommentTimeIndex < (dataManager.MainChartStTime_s + DataManager.k_MainChartPeriod_s) * dataManager.AnnotationFs)
+                    {
+                        int ecgidx = (int)((dataManager.CreateSegCommentTimeIndex - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
+                        SerieData data = serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], "NEW");
+                        //data.itemStyle.borderColor = new Color32(255, 0, 255, 1); // 深红/粉红
+                    }
+                    
+                }
             }
             else
             {
                 serieRPeak.show = false;
+                serieSegComment.show = false;
             }
 
             // 绘制分割标记
-            if (dataManager.AnnotationFs > 0 && dataManager.SegFilePath != null && dataManager.Toggle_ShowSegAnnotation.isOn)
+            if (dataManager.IsValidPlotSegAnnotation())
             {
                 seriePWave.show = true;
                 serieRWave.show = true;
@@ -185,6 +228,23 @@ public class PlotMainChart : MonoBehaviour
                 seriePWave.show = false;
                 serieRWave.show = false;
                 serieTWave.show = false;
+            }
+
+            // 绘制高亮区域
+            if (dataManager.AnnotationFs > 0.01f && dataManager.MainChartFocusTimeIndex != -1 && dataManager.MainChartFocusLeftTime > 0.001f)
+            {
+                double focusTime = dataManager.MainChartFocusTimeIndex / dataManager.AnnotationFs;
+                double alpha = dataManager.MainChartFocusLeftTime / DataManager.k_MainChartDefaultFocusLeftTime_s;
+                if (dataManager.IsInMainChartScope((float)focusTime))
+                {
+                    Color32 orangeYellow = new Color32(255, 128, 0, 255); // 橘黄色
+                    AddFocusMarkArea((float)focusTime - dataManager.MainChartStTime_s, orangeYellow, (float)alpha);
+                }
+                dataManager.MainChartFocusLeftTime -= Time.deltaTime;
+            }
+            else
+            {
+                dataManager.ReSetMainChartFocusTimeIndex();
             }
         }
         else
@@ -226,6 +286,25 @@ public class PlotMainChart : MonoBehaviour
         markArea.start.yPosition = 0;
 
         markArea.end.type = MarkAreaType.None;
+        markArea.end.xPosition = edTime / DataManager.k_MainChartPeriod_s * (1 - k_GridLeft - k_GridRight) * k_Width;
+        markArea.end.yPosition = 0.665f * k_Height;
+    }
+
+    // 此处时间为相对时间，而非从整个心电图开始的时间，单位（秒）
+    private void AddFocusMarkArea(float midTime, Color32 color, float alpha, float width = 0.2f)
+    {
+        MarkArea markArea = chart.AddChartComponent<MarkArea>();
+        markArea.serieIndex = serieECG.index;
+        markArea.itemStyle.color = color;
+        markArea.itemStyle.opacity = alpha;
+
+        markArea.start.type = MarkAreaType.None;
+        float stTime = Math.Max(0.001f, midTime - width / 2);
+        markArea.start.xPosition = stTime / DataManager.k_MainChartPeriod_s * (1 - k_GridLeft - k_GridRight) * k_Width;
+        markArea.start.yPosition = 0;
+
+        markArea.end.type = MarkAreaType.None;
+        float edTime = Math.Min(DataManager.k_MainChartPeriod_s - 0.001f, midTime + width / 2);
         markArea.end.xPosition = edTime / DataManager.k_MainChartPeriod_s * (1 - k_GridLeft - k_GridRight) * k_Width;
         markArea.end.yPosition = 0.665f * k_Height;
     }
