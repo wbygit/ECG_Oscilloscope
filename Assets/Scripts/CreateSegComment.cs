@@ -135,24 +135,24 @@ public class CreateSegComment : MonoBehaviour
         Dropdown_CreateSegCommentType.value = SegCommentType.GetIndex(SegCommentType.Add);
         dataManager.CreateSegCommentTimeIndex = -1;
         InputField_CreateSegCommentNote.text = "";
-        dataManager.PointerTimeAnnotationIndex = -1;
+        //dataManager.PointerTimeAnnotationIndex = -1;
         Text_CreateSegCommentIndex.text = "采样位置：";
         Text_CreateSegCommentTime.text = "时间：";
     }
     private void SetPointerActionForCreateSegComment()
     {
-        mainChart.chart.onAxisPointerValueChanged = delegate (Axis axis, double value)
-        {
-            if (axis is XAxis)
-            {
-                dataManager.PointerTimeAnnotationIndex = (int)Math.Round((value + dataManager.MainChartStTime_s) * dataManager.AnnotationFs);
-            }
-        };
+        //mainChart.chart.onAxisPointerValueChanged = delegate (Axis axis, double value)
+        //{
+        //    if (axis is XAxis)
+        //    {
+        //        dataManager.PointerTimeAnnotationIndex = (int)Math.Round((value + dataManager.MainChartStTime_s) * dataManager.AnnotationFs);
+        //    }
+        //};
 
-        mainChart.chart.onPointerExit = delegate (PointerEventData eventData, BaseGraph baseGraph)
-        {
-            dataManager.PointerTimeAnnotationIndex = -1;
-        };
+        //mainChart.chart.onPointerExit = delegate (PointerEventData eventData, BaseGraph baseGraph)
+        //{
+        //    dataManager.PointerTimeAnnotationIndex = -1;
+        //};
 
         mainChart.chart.onPointerClick = delegate (PointerEventData eventData, BaseGraph baseGraph)
         {
@@ -166,17 +166,34 @@ public class CreateSegComment : MonoBehaviour
                 UpdateCreateSegCommentTimeAndIndex();
             }
         };
+
+        //mainChart.chart.onAxisPointerValueChanged += OnAxisPointerValueChangedForCreateSegComment;
+        //mainChart.chart.onPointerExit = OnPointerExitForCreateSegComment;
+
     }
 
     private void ClearPointerActionForCreateSegComment()
     {
         if (mainChart.chart != null)
         {
-            mainChart.chart.onAxisPointerValueChanged = null;
-            mainChart.chart.onPointerExit = null;
+            //mainChart.chart.onAxisPointerValueChanged  -= OnAxisPointerValueChangedForCreateSegComment;
+            //mainChart.chart.onPointerExit = null;
             mainChart.chart.onPointerClick = null;
         }
     }
+
+    //private void OnAxisPointerValueChangedForCreateSegComment(Axis axis, double value)
+    //{
+    //    if (axis is XAxis)
+    //    {
+    //        dataManager.PointerTimeAnnotationIndex = (int)Math.Round((value + dataManager.MainChartStTime_s) * dataManager.AnnotationFs);
+    //    }
+    //}
+
+    //private void OnPointerExitForCreateSegComment(PointerEventData eventData, BaseGraph baseGraph)
+    //{
+    //    dataManager.PointerTimeAnnotationIndex = -1;
+    //}
 
     private void SnapCreateSegCommentTimeIndexToRPeak()
     {

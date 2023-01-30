@@ -25,6 +25,8 @@ public class PlotMainChart : MonoBehaviour
     Scatter serieTWave;
     const string k_serieTWaveName = "TWave";
 
+    
+
     const int k_Width = 1920;
     const int k_Height = 300;
     const string k_Title = "动态心电图";
@@ -35,11 +37,10 @@ public class PlotMainChart : MonoBehaviour
     const double k_MinVal = -5;
 
     public DataManager dataManager;
+    public ECGTooltip ecgTooltip;
 
     void Awake()
     {
-        dataManager = GameObject.Find("AppConfig").GetComponent<DataManager>();
-
         chart = gameObject.AddComponent<LineChart>();
         chart.Init(false);
         chart.SetSize(k_Width, k_Height);
@@ -90,10 +91,11 @@ public class PlotMainChart : MonoBehaviour
         serieSegComment.itemStyle.borderWidth = 1f;
         serieSegComment.itemStyle.borderColor = Color.black;
         serieSegComment.itemStyle.opacity = 0.4f; // 不透明度
-        LabelStyle serieSegCommentLabelstyle = serieSegComment.AddExtraComponent<LabelStyle>();
-        serieSegCommentLabelstyle.show = true;
-        serieSegCommentLabelstyle.formatter = "{e}";
-        serieSegCommentLabelstyle.position = LabelStyle.Position.Top;
+        //LabelStyle serieSegCommentLabelstyle = serieSegComment.AddExtraComponent<LabelStyle>();
+        //serieSegCommentLabelstyle.show = true;
+        //serieSegCommentLabelstyle.formatter = "{b}";
+        //serieSegCommentLabelstyle.position = LabelStyle.Position.Default;
+
 
         // 只是为了显示图例而已
         seriePWave = chart.AddSerie<Scatter>(k_seriePWaveName, false);
@@ -129,13 +131,41 @@ public class PlotMainChart : MonoBehaviour
         xAxis.minorSplitLine.show = true;
         yAxis.minorTick.splitNumber = 5;
 
-
         AxisTick xAxisTick = xAxis.axisTick;
         AxisTick yAxisTick = yAxis.axisTick;
         xAxisTick.showStartTick = true;
         xAxisTick.showEndTick = true;
         yAxisTick.showStartTick = true;
         yAxisTick.showEndTick = true;
+
+        //tooltip = chart.AddChartComponent<Tooltip>();
+        //tooltip.show = false;
+        //tooltip.type = Tooltip.Type.Corss;
+        //tooltip.trigger = Tooltip.Trigger.Item;
+        //tooltip.position = Tooltip.Position.Auto;
+        //tooltip.titleFormatter = "{.2}{a2}:{e2}";
+        //tooltip.itemFormatter = ""; 
+
+        // 为ECGTooltip和CreateSegComment提供鼠标位置
+        chart.onAxisPointerValueChanged = delegate (Axis axis, double value)
+        {
+            if (axis is XAxis)
+            {
+                if (dataManager.IsValidPlotRPeak() || dataManager.IsValidPlotClsAnnotation())
+                {
+                    dataManager.PointerTimeAnnotationIndex = (int)Math.Round((value + dataManager.MainChartStTime_s) * dataManager.AnnotationFs);
+                }
+                else
+                {
+                    dataManager.PointerTimeAnnotationIndex = -1;
+                }
+            }
+        };
+
+        chart.onPointerExit = delegate (PointerEventData eventData, BaseGraph baseGraph)
+        {
+            dataManager.PointerTimeAnnotationIndex = -1;
+        };
     }
 
     void Update()
@@ -144,6 +174,9 @@ public class PlotMainChart : MonoBehaviour
         serieRPeak.ClearData();
         serieSegComment.ClearData();
         chart.RemoveChartComponents<MarkArea>();
+        //tooltip.ClearData();
+        ecgTooltip.ClearData();
+
         if (dataManager.IsValidPlotMainChart())
         {
             dataManager.Slider_MainChartTime.interactable = true;
@@ -193,7 +226,13 @@ public class PlotMainChart : MonoBehaviour
                 for (int i = anStPos; i < dataManager.SegCommentList.Count && dataManager.SegCommentList[i].timeIndex <= (dataManager.MainChartStTime_s + DataManager.k_MainChartPeriod_s) * dataManager.AnnotationFs; i++)
                 {
                     int ecgidx = (int)((dataManager.SegCommentList[i].timeIndex - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
-                    serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], SegCommentType.GetTip(dataManager.SegCommentList[i].type));
+                    SerieData data = serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], SegCommentType.GetTip(dataManager.SegCommentList[i].type));
+                    ecgTooltip.AddSegComment(dataManager.SegCommentList[i]);
+                    //tooltip.AddSerieDataIndex(serieSegComment.index, data.index);
+                    //LabelStyle labelstyle = data.GetOrAddComponent<LabelStyle>();
+                    //labelstyle.show = true;
+                    //labelstyle.formatter = "{e}";
+                    //labelstyle.position = LabelStyle.Position.Inside;
                 }
 
                 if (dataManager.CreateSegCommentTimeIndex != -1)
@@ -202,15 +241,23 @@ public class PlotMainChart : MonoBehaviour
                     {
                         int ecgidx = (int)((dataManager.CreateSegCommentTimeIndex - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
                         SerieData data = serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], "NEW");
+                        ecgTooltip.AddSegComment(new SegCommentData(dataManager.CreateSegCommentTimeIndex, SegCommentType.New, "当前新建位置"));
+                        //tooltip.AddSerieDataIndex(serieSegComment.index, data.index);
                         //data.itemStyle.borderColor = new Color32(255, 0, 255, 1); // 深红/粉红
+                        //LabelStyle labelstyle = data.GetOrAddComponent<LabelStyle>();
+                        //labelstyle.show = true;
+                        //labelstyle.formatter = "{e}";
+                        //labelstyle.position = LabelStyle.Position.Inside;
                     }
                     
                 }
+                //ResetTooltip(serieSegComment.dataCount > 0);
             }
             else
             {
                 serieRPeak.show = false;
                 serieSegComment.show = false;
+                //ResetTooltip(false);
             }
 
             // 绘制分割标记
@@ -256,6 +303,7 @@ public class PlotMainChart : MonoBehaviour
             dataManager.Button_MainChartMoveBackward.interactable = false;
             dataManager.Button_MainChartFastMoveBackward.interactable = false;
         }
+        ecgTooltip.UpdateECGTooltip();
     }
 
     private void AddPQRSTSegAnnotation(in List<int> onList, in List<int> offList, Color32 color)
@@ -308,4 +356,24 @@ public class PlotMainChart : MonoBehaviour
         markArea.end.xPosition = edTime / DataManager.k_MainChartPeriod_s * (1 - k_GridLeft - k_GridRight) * k_Width;
         markArea.end.yPosition = 0.665f * k_Height;
     }
+
+    //private Tooltip ResetTooltip(bool flag)
+    //{
+    //    if (tooltip != null)
+    //    {
+    //        chart.RemoveChartComponents<Tooltip>();
+    //        tooltip = null;
+    //    }
+    //    if (flag)
+    //    {
+    //        tooltip = chart.AddChartComponent<Tooltip>();
+    //        tooltip.show = true;
+    //        tooltip.type = Tooltip.Type.Corss;
+    //        tooltip.trigger = Tooltip.Trigger.Item;
+    //        tooltip.position = Tooltip.Position.Auto;
+    //        tooltip.titleFormatter = "{.2}{a2}:{e2}";
+    //        tooltip.itemFormatter = "";
+    //    }
+    //    return tooltip;
+    //}
 }

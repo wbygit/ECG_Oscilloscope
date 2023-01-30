@@ -17,6 +17,7 @@ public class SegComments : MonoBehaviour
     public TMP_Text Text_SegCommentListLength;
     public ScrollRect ScrollView_SegComments;
     public TMP_Text Text_SegCommentSaveStatus;
+    public TMP_InputField InputField_SelectSegCommentIndex;
     GameObject segCommentItemPrefab;
 
     public int selectedTimeIndex = -1; // -1表示未选中，否则用采样位置标记
@@ -142,7 +143,7 @@ public class SegComments : MonoBehaviour
         if (selectedTimeIndex != -1)
         {
             int newStTime = (int)(selectedTimeIndex / dataManager.AnnotationFs - 0.5 * DataManager.k_MainChartPeriod_s);
-            newStTime = Math.Max(0, newStTime);
+            newStTime = Math.Clamp(newStTime, 0, (int)(dataManager.ECGData.Count / dataManager.ECGDataFs) - DataManager.k_MainChartPeriod_s);
             dataManager.SetMainChartFocusTimeIndex(selectedTimeIndex, newStTime);
         }
     }
@@ -158,13 +159,51 @@ public class SegComments : MonoBehaviour
         {
             selectedTimeIndex = dataManager.SegCommentList[segCommentIndex].timeIndex;
             startTimeIndex = selectedTimeIndex;
-            ScrollView_SegComments.verticalNormalizedPosition = 1f;
+            startTimeIndex = ClampStartTimeIndex();
+            //float newPosition = 1f;
+            //if (dataManager.SegCommentList.Count > k_MaxVirualListLength && segCommentIndex >= dataManager.SegCommentList.Count - 2 * k_VirtualListLoad)
+            //{
+            //    newPosition = 0f;
+            //}
+            //ScrollView_SegComments.verticalNormalizedPosition = newPosition;
+            ScrollView_SegComments.verticalNormalizedPosition = GetScrollPositionFocusSelected();
             UpdateSegCommentsWindow();
             dataManager.SetMainChartFocusTimeIndex(selectedTimeIndex);
         }
         else
         {
             MessageBox.DisplayMessageBox("无法从图中定位分割修改项", "当前心电图显示区域中无分割修改项", dismissable: true);
+        }
+    }
+
+    public void OnClick_Button_SelectSegCommentIndex()
+    {
+        int segCommentIndex = -1;
+        try
+        {
+            segCommentIndex = int.Parse(InputField_SelectSegCommentIndex.text) - 1;
+            if (segCommentIndex >= dataManager.SegCommentList.Count || segCommentIndex < 0)
+            {
+                throw new Exception("分割修改项无法跳转，超出范围");
+            }
+            selectedTimeIndex = dataManager.SegCommentList[segCommentIndex].timeIndex;
+            startTimeIndex = selectedTimeIndex;
+            startTimeIndex = ClampStartTimeIndex();
+            ScrollView_SegComments.verticalNormalizedPosition = GetScrollPositionFocusSelected();
+            UpdateSegCommentsWindow();
+            OnClick_Button_LocateSegCommentOnChart();
+            //float newPosition = 1f;
+            //if (dataManager.SegCommentList.Count > k_MaxVirualListLength && segCommentIndex >= dataManager.SegCommentList.Count - 2 * k_VirtualListLoad)
+            //{
+            //    newPosition = 0f;
+            //}
+            //ScrollView_SegComments.verticalNormalizedPosition = newPosition;
+            
+        }
+        catch (Exception e)
+        {
+            MessageBox.DisplayMessageBox("分割修改标记跳转失败", "目标序号为空或不在范围内");
+            Debug.LogError(e);
         }
     }
 
@@ -199,7 +238,7 @@ public class SegComments : MonoBehaviour
     }
     
     public void UpdateSegCommentsWindow()
-    {
+     {
         int curSelectedTimeIndex = selectedTimeIndex;
         bool setSelectedTimeIndex = false;
         Queue<GameObject> itemQueue = new Queue<GameObject>();
@@ -293,5 +332,23 @@ public class SegComments : MonoBehaviour
         }
         selectedTimeIndex = -1;
         startTimeIndex = -1;
+    }
+
+    private int ClampStartTimeIndex()
+    {
+        if (startTimeIndex == -1)
+        {
+            return -1;
+        }
+        int startIndex = dataManager.GetLowerBoundIndexOfSegCommentList(startTimeIndex);
+        startIndex = Math.Clamp(startIndex, 0, dataManager.SegCommentList.Count - k_MaxVirualListLength);
+        return dataManager.SegCommentList[startIndex].timeIndex;
+    }
+
+    private float GetScrollPositionFocusSelected()
+    {
+        int startIndex = dataManager.GetLowerBoundIndexOfSegCommentList(startTimeIndex);
+        int selectedIndex = dataManager.GetLowerBoundIndexOfSegCommentList(selectedTimeIndex);
+        return 1f - (float)(selectedIndex - startIndex) / Math.Min(k_MaxVirualListLength, dataManager.SegCommentList.Count);
     }
 }
