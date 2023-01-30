@@ -6,12 +6,15 @@ using System.Runtime.InteropServices;
 using TMPro;
 using UnityEngine.UI;
 using Newtonsoft.Json;
+using System.Text; 
 
 public class DataManager : MonoBehaviour
 {
     public const int k_MainChartPeriod_s = 10; // 主图显示多少秒的心电图
     public const int k_MainChartMovePeriod_s = 7; // 左右移动多少秒的心电图
     public const int k_MainChartFastMovePeriod_s = 60; // 左右快速移动多少秒的心电图
+    public const double k_MainChartDefaultFocusLeftTime_s = 1; // 默认剩余的高亮提示时间
+    public const float k_CreateSegCommentMovePeroid_s = 0.01f; // 创建分割修改标记位置时微调一次移动多长时间
 
     public string ECGFilePath; // 若filepath为null，则意味着数据未读取，不进行绘图
     public TMP_InputField InputField_ECGDataFilePath;
@@ -36,6 +39,9 @@ public class DataManager : MonoBehaviour
     public List<int> POnList = new List<int>();
     public List<int> POffList = new List<int>();
 
+    public List<SegCommentData> SegCommentList = new List<SegCommentData>(); // 分割标记修改项列表，以AnnotationFs采样率为准的采样点下标
+    public bool SegCommentListSavedFlag = false; // 标记分割标记修改项是否被修改未保存
+
     public double AnnotationFs = 0; // 若采样率为零，则意味着该项未设置，不绘制标记
     public TMP_InputField InputField_AnnotationFs;
 
@@ -53,6 +59,11 @@ public class DataManager : MonoBehaviour
     public Button Button_MainChartMoveBackward;
     public Button Button_MainChartFastMoveBackward;
 
+    public int CreateSegCommentTimeIndex = -1; // 创建分割修改标记时的位置
+    public int PointerTimeAnnotationIndex = -1; // 鼠标所在采样位置（以标记采样率）
+    public int MainChartFocusTimeIndex = -1; // 需要主图聚焦显示的位置 （以标记采样率）
+    public double MainChartFocusLeftTime = 0; // 聚焦位置的剩余时间
+
 
     public void OnClick_Button_LoadECGData()
     {
@@ -60,21 +71,49 @@ public class DataManager : MonoBehaviour
         if (filepath != null)
         {
             ECGData.Clear();
+            StreamReader inputFile = null;
             try
             {
-                //MessageBox.DisplayMessageBox("载入心电数据", "读取文件中，请稍等。", false, null);
-                string[] lines = System.IO.File.ReadAllLines(filepath);
-                foreach (string line in lines)
+                inputFile = System.IO.File.OpenText(filepath);
+
+                StringBuilder str = new StringBuilder();
+                while (inputFile.Peek() != -1)
                 {
-                    string[] arr = line.Split(",");
-                    foreach (string vstr in arr)
+                    char c = (char)inputFile.Read();
+                    if (c == ',')
                     {
-                        if (!String.IsNullOrWhiteSpace(vstr))
+                        if (!String.IsNullOrWhiteSpace(str.ToString()))
                         {
-                            ECGData.Add(Convert.ToDouble(vstr));
+                            ECGData.Add(Convert.ToDouble(str.ToString()));
                         }
+                        str.Clear();
+                    }
+                    else
+                    {
+                        str.Append(c);
                     }
                 }
+                if (!String.IsNullOrWhiteSpace(str.ToString()))
+                {
+                    ECGData.Add(Convert.ToDouble(str.ToString()));
+                }
+
+
+                //MessageBox.DisplayMessageBox("载入心电数据", "读取文件中，请稍等。", false, null);
+                //string[] lines = System.IO.File.ReadAllLines(filepath);
+
+                //foreach (string line in lines)
+                //{
+                //    string[] arr = line.Split(",");
+                //    foreach (string vstr in arr)
+                //    {
+                //        if (!String.IsNullOrWhiteSpace(vstr))
+                //        {
+                //            ECGData.Add(Convert.ToDouble(vstr));
+                //        }
+                //    }
+                //}
+                ECGData.Capacity = ECGData.Count;
                 ECGFilePath = filepath;
                 InputField_ECGDataFilePath.text = filepath;
             }
@@ -98,6 +137,10 @@ public class DataManager : MonoBehaviour
                 else
                 {
                     Text_ECGDataLength.text = "总时长：";
+                }
+                if (inputFile != null)
+                {
+                    inputFile.Dispose();
                 }
             }
         }
@@ -144,6 +187,9 @@ public class DataManager : MonoBehaviour
             finally
             {
                 Toggle_ShowRPeakAnnotation.isOn = true;
+                Toggle Toggle_SegCommentsTab = GameObject.Find("Toggle_SegCommentsTab").GetComponent<Toggle>();
+                Toggle_SegCommentsTab.isOn = false;
+                Toggle_SegCommentsTab.interactable = false;
             }
         }
     }
@@ -312,7 +358,7 @@ public class DataManager : MonoBehaviour
         InputField_MainChartStHour.text = String.Format("{0:00}", hh);
         InputField_MainChartStMinute.text = String.Format("{0:00}", mm);
         InputField_MainChartStSecond.text = String.Format("{0:00}", ss);
-        TransSecondToHMS(MainChartStTime_s+k_MainChartPeriod_s, out hh, out mm, out ss);
+        TransSecondToHMS(MainChartStTime_s + k_MainChartPeriod_s, out hh, out mm, out ss);
         InputField_MainChartEdHour.text = String.Format("{0:00}", hh);
         InputField_MainChartEdMinute.text = String.Format("{0:00}", mm);
         InputField_MainChartEdSecond.text = String.Format("{0:00}", ss);
@@ -328,7 +374,7 @@ public class DataManager : MonoBehaviour
         try
         {
             double fs = Convert.ToDouble(fsstr);
-            if (fs > 0.01)
+if (fs > 0.01)
             {
                 ECGDataFs = fs;
             }
@@ -424,9 +470,70 @@ public class DataManager : MonoBehaviour
         ss = time_s % 60;
     }
 
+    // 将以秒为单位的浮点数据转换为形如00:00:00.00格式的字符串
+    public static string TransSecondToHMSp2(double time_s)
+    {
+        int time_s_int = (int)time_s;
+        TransSecondToHMS(time_s_int, out int hh, out int mm, out int ss);
+        return String.Format("{0:00}:{1:00}:{2:00}.{3:00}", hh, mm, ss, (int)Math.Round((time_s - time_s_int) * 100));
+    }
+
     public static int TransHMSToSecond(in int hh, in int mm, in int ss)
     {
         return hh * 3600 + mm * 60 + ss;
+    }
+
+    public bool IsValidPlotMainChart()
+    {
+        return ECGData.Count > 0 && ECGDataFs > 0;
+    }
+
+    public bool IsValidPlotRPeak()
+    {
+        return AnnotationFs > 0 && RPeakList.Count > 0 && Toggle_ShowRPeakAnnotation.isOn;
+    }
+
+    public bool IsValidPlotSegAnnotation()
+    {
+        return AnnotationFs > 0 && SegFilePath != null && Toggle_ShowSegAnnotation.isOn;
+    }
+
+    // TODO
+    public bool IsValidPlotClsAnnotation()
+    {
+        return false;
+    }
+
+    public int GetLowerBoundIndexOfSegCommentList(int timeIndex)
+    {
+        return SegCommentList.BinarySearch(new SegCommentData(timeIndex, SegCommentType.Other));
+    }
+
+    public void SetMainChartFocusTimeIndex(int timeIndex, int? mainChartStTime_s = null)
+    {
+        MainChartFocusTimeIndex = timeIndex;
+        MainChartFocusLeftTime = k_MainChartDefaultFocusLeftTime_s;
+        if (mainChartStTime_s != null)
+        {
+            MainChartStTime_s = (int)mainChartStTime_s;
+            UpdateMainChartStEdTime();
+        }
+    }
+
+    public void ReSetMainChartFocusTimeIndex()
+    {
+        MainChartFocusTimeIndex = -1;
+        MainChartFocusLeftTime = 0;
+    }
+
+    // 判断时间是否超出主图显示时间
+    public bool IsInMainChartScope(float time)
+    {
+        if (!IsValidPlotMainChart())
+        {
+            return false;
+        }
+        return time >= MainChartStTime_s && time < MainChartStTime_s + k_MainChartPeriod_s;
     }
 }
 
@@ -461,11 +568,17 @@ public class OpenFileDlg
 
 public class OpenFileDialog
 {
+    // 链接指定系统函数       打开文件对话框
     [DllImport("Comdlg32.dll", SetLastError = true, ThrowOnUnmappableChar = true, CharSet = CharSet.Auto)]
     public static extern bool GetOpenFileName([In, Out] OpenFileDlg ofd);
 
+    // 链接指定系统函数        另存为对话框
+    [DllImport("Comdlg32.dll", SetLastError = true, ThrowOnUnmappableChar = true, CharSet = CharSet.Auto)]
+    public static extern bool GetSaveFileName([In, Out] OpenFileDlg ofn);
+
     // 打开资源管理器对话框，返回选中文件路径，若未进行选择，返回null
-    static public string GetFilePath(string type, string title)
+    // multiFile 是否可打开多个文件
+    static public string GetFilePath(string type, string title, bool multiFile = false)
     {
 
         OpenFileDlg pth = new OpenFileDlg();
@@ -485,13 +598,55 @@ public class OpenFileDialog
         pth.title = title;
         //pth.defExt = "TXT";//显示文件类型
         pth.defExt = "";//显示文件类型
-        pth.flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000200 | 0x00000008;
+        pth.flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008;
+        if (multiFile)
+        {
+            pth.flags |= 0x00000200;
+        }
         if (OpenFileDialog.GetOpenFileName(pth))
         {
             string filepath = pth.file;//选择的文件路径;
             return filepath;
             //DirectoryInfo i = new DirectoryInfo(filepath);
 
+            ////上级目录
+            //string path = i.Parent.FullName;//返回文件的上级目录
+
+            //ProjectData openprodata = new ProjectData();
+            //openprodata.proname = Path.GetFileNameWithoutExtension(path);//返回路径的最后一个文件夹名称
+        }
+        return null;
+    }
+
+    // 打开资源管理器对话框，返回用于保存的文件路径，若未进行选择，返回null
+    static public string GetSavePath(string type, string dlgTitle, string initialDir, string initialFileName)
+    {
+        OpenFileDlg pth = new OpenFileDlg();
+        pth.structSize = System.Runtime.InteropServices.Marshal.SizeOf(pth);
+        pth.filter = "文件(*." + type + ")\0*." + type + "\0";//筛选文件类型
+        //pth.filter = "图片文件(*.jpg*.png)\0*.jpg;*.png";
+        pth.file = new string(new char[1024]);
+        char[] initialFileNameCharArr = new char[1024];
+        for (int i = 0; i < initialFileName.Length; i++)
+        {
+            initialFileNameCharArr[i] = initialFileName[i];
+        }
+        pth.file = new string(initialFileNameCharArr);
+        pth.maxFile = pth.file.Length;
+        pth.fileTitle = new string(new char[1024]);
+        pth.maxFileTitle = pth.fileTitle.Length;
+        pth.initialDir = initialDir;
+        pth.title = dlgTitle;
+        //pth.defExt = "TXT";//显示文件类型
+        pth.defExt = "";//显示文件类型
+        // OFN_OVERWRITEPROMPT 0x00000002 如果所选文件已存在，则会导致“ 另存为 ”对话框生成消息框。 用户必须确认是否覆盖文件。
+        // OFN_PATHMUSTEXIST 0x00000800 用户只能键入有效的路径和文件名。 如果使用此标志，并且用户在 “文件名 ”条目字段中键入无效的路径和文件名，对话框函数会在消息框中显示警告。
+        pth.flags = 0x00000002 | 0x00000800;
+        if (OpenFileDialog.GetSaveFileName(pth))
+        {
+            string filepath = pth.file;//选择的文件路径;
+            return filepath;
+            //DirectoryInfo i = new DirectoryInfo(filepath);
             ////上级目录
             //string path = i.Parent.FullName;//返回文件的上级目录
 
