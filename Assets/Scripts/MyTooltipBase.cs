@@ -49,10 +49,10 @@ public abstract class MyTooltipBase : MonoBehaviour
     protected virtual void MoveToPointer()
     {
         // 以屏幕左下角为原点，x向右，y向上的坐标系
-        Vector2 mousePosition = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
-        Vector2 normalizedMousePosition = new Vector2(mousePosition.x / m_TooltipGameObject.transform.parent.GetComponent<RectTransform>().rect.width, mousePosition.y / m_TooltipGameObject.transform.parent.GetComponent<RectTransform>().rect.height);
+        Vector2 mousePositionInScreen = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+        Vector2 normalizedMousePosition = new Vector2(mousePositionInScreen.x / Screen.width, mousePositionInScreen.y / Screen.height);
         // Tooltip的锚点在左上角
-        Vector2 tooltipPosition = mousePosition;
+        Vector2 tooltipPosition = normalizedMousePosition * m_TooltipGameObject.transform.parent.GetComponent<RectTransform>().rect.size;
         RectTransform rectTransform = m_TooltipGameObject.GetComponent<RectTransform>();
         float width = rectTransform.rect.width;
         float height = rectTransform.rect.height;
