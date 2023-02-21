@@ -50,16 +50,20 @@ public abstract class MyTooltipBase : MonoBehaviour
     {
         // 以屏幕左下角为原点，x向右，y向上的坐标系
         Vector2 mousePositionInScreen = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
-        Vector2 normalizedMousePosition = new Vector2(mousePositionInScreen.x / Screen.width, mousePositionInScreen.y / Screen.height);
+        Vector2 normalizedMousePositionInScreen = new Vector2(mousePositionInScreen.x / Screen.width, mousePositionInScreen.y / Screen.height);
+        Vector2 backgroundSize = m_TooltipGameObject.transform.parent.GetComponent<RectTransform>().rect.size;
+        // 以background左下角为原点，x向右，y向上的坐标系
+        Vector2 backgroundSizeInScreen = new Vector2(Screen.width, Screen.width * backgroundSize.y / backgroundSize.x);
+        Vector2 normalizedMousePosition = new Vector2(normalizedMousePositionInScreen.x, (mousePositionInScreen.y - 0.5f * (Screen.height - backgroundSizeInScreen.y)) / backgroundSizeInScreen.y);
         // Tooltip的锚点在左上角
-        Vector2 tooltipPosition = normalizedMousePosition * m_TooltipGameObject.transform.parent.GetComponent<RectTransform>().rect.size;
+        Vector2 tooltipPosition = normalizedMousePosition * backgroundSize;
         RectTransform rectTransform = m_TooltipGameObject.GetComponent<RectTransform>();
         float width = rectTransform.rect.width;
         float height = rectTransform.rect.height;
         if (normalizedMousePosition.x < 0.5 && normalizedMousePosition.y < 0.5)
         {
             // 鼠标在左下，提示框在右上
-            tooltipPosition.y += height;
+            tooltipPosition.y += height ;
             tooltipPosition.x += k_DistAwayFromPointer;
             tooltipPosition.y += k_DistAwayFromPointer;
         }

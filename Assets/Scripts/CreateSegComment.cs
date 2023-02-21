@@ -164,6 +164,7 @@ public class CreateSegComment : MonoBehaviour
                     SnapCreateSegCommentTimeIndexToRPeak();
                 }
                 UpdateCreateSegCommentTimeAndIndex();
+                mainChart.NeedUpdate();
             }
         };
 

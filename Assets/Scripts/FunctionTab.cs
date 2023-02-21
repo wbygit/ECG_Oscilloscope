@@ -43,7 +43,7 @@ public class FunctionTab : MonoBehaviour
             Toggle_SegCommentsTab.interactable = false;
         }
 
-        if (dataManager.IsValidPlotClsAnnotation())
+        if (dataManager.IsValidPlotClsOutput() || dataManager.IsValidPlotClsLabel())
         {
             Toggle_ClsAnnotationTab.interactable = true;
         }

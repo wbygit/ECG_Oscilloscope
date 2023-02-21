@@ -25,10 +25,14 @@ public class PlotMainChart : MonoBehaviour
     Scatter serieTWave;
     const string k_serieTWaveName = "TWave";
 
-    
+    Scatter serieClsOutput;
+    const string k_serieClsOutput = "分类输出";
+
+    Scatter serieClsLabel;
+    const string k_serieClsLabel = "分类标签";
 
     const int k_Width = 1920;
-    const int k_Height = 300;
+    const int k_Height = 340;
     const string k_Title = "动态心电图";
     const float k_GridLeft = 0.05f;  // 左边距
     const float k_GridRight = 0.04f; // 右边距
@@ -39,21 +43,30 @@ public class PlotMainChart : MonoBehaviour
     public DataManager dataManager;
     public ECGTooltip ecgTooltip;
 
+    private bool updateInThisFrame = true; // 当前帧是否需要重新绘制
+
+    public void NeedUpdate()
+    {
+        updateInThisFrame = true;
+    }
+
     void Awake()
     {
         chart = gameObject.AddComponent<LineChart>();
         chart.Init(false);
         chart.SetSize(k_Width, k_Height);
 
-        Title title = chart.AddChartComponent<Title>();
-        title.text = k_Title;
-        title.show = true;
+        //Title title = chart.AddChartComponent<Title>();
+        //title.text = k_Title;
+        //title.show = true;
 
         GridCoord girdCoord = chart.AddChartComponent<GridCoord>();
         girdCoord.left = k_GridLeft;
         girdCoord.right = k_GridRight;
+        girdCoord.top = 0.2f;
 
         Legend legend = chart.GetOrAddChartComponent<Legend>();
+        legend.location.top = 0.02f;
         legend.show = true;
 
         XAxis xAxis = chart.AddChartComponent<XAxis>();
@@ -96,8 +109,9 @@ public class PlotMainChart : MonoBehaviour
         //serieSegCommentLabelstyle.formatter = "{b}";
         //serieSegCommentLabelstyle.position = LabelStyle.Position.Default;
 
+        
 
-        // 只是为了显示图例而已
+        #region // 只是为了显示图例而已
         seriePWave = chart.AddSerie<Scatter>(k_seriePWaveName, false);
         seriePWave.AnimationEnable(false);
         seriePWave.colorBy = SerieColorBy.Serie;
@@ -115,6 +129,42 @@ public class PlotMainChart : MonoBehaviour
         serieTWave.colorBy = SerieColorBy.Serie;
         serieTWave.itemStyle.color = Color.cyan;
         serieTWave.show = false;
+        #endregion
+
+
+        serieClsOutput = chart.AddSerie<Scatter>(k_serieClsOutput, false);
+        serieClsOutput.AnimationEnable(false);
+        serieClsOutput.colorBy = SerieColorBy.Serie;
+        serieClsOutput.itemStyle.color = Color.blue;
+        serieClsOutput.symbol.type = SymbolType.Triangle;
+        serieClsOutput.symbol.size = 10f;
+        serieClsOutput.itemStyle.backgroundWidth = 2f;
+        serieClsOutput.itemStyle.borderColor = Color.blue;
+        serieClsOutput.itemStyle.opacity = 0.45f; // 不透明度
+        LabelStyle serieClsOutputLabelstyle = serieClsOutput.AddExtraComponent<LabelStyle>();
+        serieClsOutputLabelstyle.show = true;
+        serieClsOutputLabelstyle.textStyle.color = Color.blue;
+        serieClsOutputLabelstyle.formatter = "{b}";
+        serieClsOutputLabelstyle.position = LabelStyle.Position.Top;
+        serieClsOutputLabelstyle.textStyle.fontSize = 15;
+        serieClsOutputLabelstyle.offset = new Vector3(0, 25, 0); // 文字向上偏移一点
+
+        serieClsLabel = chart.AddSerie<Scatter>(k_serieClsLabel, false);
+        serieClsLabel.AnimationEnable(false);
+        serieClsLabel.colorBy = SerieColorBy.Serie;
+        Color32 brownColor = new Color32(128, 42, 42, 255); // 棕色
+        serieClsLabel.itemStyle.color = brownColor;
+        serieClsLabel.symbol.type = SymbolType.EmptyRect;
+        serieClsLabel.symbol.size = 20f;
+        serieClsLabel.itemStyle.opacity = 0.8f; // 不透明度
+        LabelStyle serieClsLabelLabelstyle = serieClsLabel.AddExtraComponent<LabelStyle>();
+        serieClsLabelLabelstyle.show = true;
+        serieClsLabelLabelstyle.textStyle.color = brownColor;
+        serieClsLabelLabelstyle.formatter = "{b}";
+        serieClsLabelLabelstyle.position = LabelStyle.Position.Bottom;
+        serieClsLabelLabelstyle.textStyle.fontSize = 15;
+        serieClsLabelLabelstyle.offset = new Vector3(0, -45, 0); // 文字向下偏移一点
+
 
         yAxis.axisLabel.formatter = "{value:f1}";
         yAxis.interval = 0.5; // 设置Y轴刻度间隔为0.5mV
@@ -151,7 +201,7 @@ public class PlotMainChart : MonoBehaviour
         {
             if (axis is XAxis)
             {
-                if (dataManager.IsValidPlotRPeak() || dataManager.IsValidPlotClsAnnotation())
+                if (dataManager.IsValidPlotRPeak() || dataManager.IsValidPlotClsOutput() || dataManager.IsValidPlotClsLabel())
                 {
                     dataManager.PointerTimeAnnotationIndex = (int)Math.Round((value + dataManager.MainChartStTime_s) * dataManager.AnnotationFs);
                 }
@@ -167,15 +217,69 @@ public class PlotMainChart : MonoBehaviour
             dataManager.PointerTimeAnnotationIndex = -1;
         };
     }
-
+    
     void Update()
     {
+        if (dataManager.MainChartFocusTimeIndex != -1 || updateInThisFrame)
+        {
+            chart.RemoveChartComponents<MarkArea>();
+            #region // 绘制分割标记
+            if (dataManager.IsValidPlotMainChart() && dataManager.IsValidPlotSegAnnotation())
+            {
+                seriePWave.show = true;
+                serieRWave.show = true;
+                serieTWave.show = true;
+                AddPQRSTSegAnnotation(dataManager.POnList, dataManager.POffList, Color.green);
+                AddPQRSTSegAnnotation(dataManager.ROnList, dataManager.ROffList, Color.yellow);
+                AddPQRSTSegAnnotation(dataManager.TOnList, dataManager.TOffList, Color.cyan);
+            }
+            else
+            {
+                seriePWave.show = false;
+                serieRWave.show = false;
+                serieTWave.show = false;
+            }
+            #endregion
+
+            #region // 绘制高亮区域
+
+            if (dataManager.IsValidPlotMainChart() && dataManager.AnnotationFs > 0.01f && dataManager.MainChartFocusTimeIndex != -1 && dataManager.MainChartFocusLeftTime > 0.001f)
+            {
+                double focusTime = dataManager.MainChartFocusTimeIndex / dataManager.AnnotationFs;
+                double alpha = dataManager.MainChartFocusLeftTime / DataManager.k_MainChartDefaultFocusLeftTime_s;
+                if (dataManager.IsInMainChartScope((float)focusTime))
+                {
+                    Color32 orangeYellow = new Color32(255, 128, 0, 255); // 橘黄色
+                    AddFocusMarkArea((float)focusTime - dataManager.MainChartStTime_s, orangeYellow, (float)alpha);
+                }
+                dataManager.MainChartFocusLeftTime -= Time.deltaTime;
+            }
+            else
+            {
+                dataManager.ReSetMainChartFocusTimeIndex();
+            }
+            #endregion
+        }
+
+
+        if (!updateInThisFrame)
+        {
+            ecgTooltip.UpdateECGTooltip();
+            return;
+        }
+        updateInThisFrame = false;
         serieECG.ClearData();
         serieRPeak.ClearData();
         serieSegComment.ClearData();
-        chart.RemoveChartComponents<MarkArea>();
+        
+        serieRWave.ClearData();
+        serieTWave.ClearData();
+        seriePWave.ClearData();
         //tooltip.ClearData();
         ecgTooltip.ClearData();
+        serieClsOutput.ClearData();
+        serieClsLabel.ClearData();
+        //chart.RemoveChartComponents<MarkLine>();
 
         if (dataManager.IsValidPlotMainChart())
         {
@@ -242,16 +346,9 @@ public class PlotMainChart : MonoBehaviour
                         int ecgidx = (int)((dataManager.CreateSegCommentTimeIndex - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
                         SerieData data = serieSegComment.AddXYData((double)ecgidx / dataManager.ECGDataFs, dataManager.ECGData[ecgidx + stPos], "NEW");
                         ecgTooltip.AddSegComment(new SegCommentData(dataManager.CreateSegCommentTimeIndex, SegCommentType.New, "当前新建位置"));
-                        //tooltip.AddSerieDataIndex(serieSegComment.index, data.index);
-                        //data.itemStyle.borderColor = new Color32(255, 0, 255, 1); // 深红/粉红
-                        //LabelStyle labelstyle = data.GetOrAddComponent<LabelStyle>();
-                        //labelstyle.show = true;
-                        //labelstyle.formatter = "{e}";
-                        //labelstyle.position = LabelStyle.Position.Inside;
                     }
-                    
+
                 }
-                //ResetTooltip(serieSegComment.dataCount > 0);
             }
             else
             {
@@ -260,39 +357,75 @@ public class PlotMainChart : MonoBehaviour
                 //ResetTooltip(false);
             }
 
-            // 绘制分割标记
-            if (dataManager.IsValidPlotSegAnnotation())
-            {
-                seriePWave.show = true;
-                serieRWave.show = true;
-                serieTWave.show = true;
-                AddPQRSTSegAnnotation(dataManager.POnList, dataManager.POffList, Color.green);
-                AddPQRSTSegAnnotation(dataManager.ROnList, dataManager.ROffList, Color.yellow);
-                AddPQRSTSegAnnotation(dataManager.TOnList, dataManager.TOffList, Color.cyan);
-            }
-            else
-            {
-                seriePWave.show = false;
-                serieRWave.show = false;
-                serieTWave.show = false;
-            }
 
-            // 绘制高亮区域
-            if (dataManager.AnnotationFs > 0.01f && dataManager.MainChartFocusTimeIndex != -1 && dataManager.MainChartFocusLeftTime > 0.001f)
+            #region 绘制模型分类输出
+            // 绘制模型分类输出
+            if (dataManager.IsValidPlotClsOutput())
             {
-                double focusTime = dataManager.MainChartFocusTimeIndex / dataManager.AnnotationFs;
-                double alpha = dataManager.MainChartFocusLeftTime / DataManager.k_MainChartDefaultFocusLeftTime_s;
-                if (dataManager.IsInMainChartScope((float)focusTime))
+                if (!serieClsOutput.show)
                 {
-                    Color32 orangeYellow = new Color32(255, 128, 0, 255); // 橘黄色
-                    AddFocusMarkArea((float)focusTime - dataManager.MainChartStTime_s, orangeYellow, (float)alpha);
+                    serieClsOutput.show = true;
                 }
-                dataManager.MainChartFocusLeftTime -= Time.deltaTime;
+                //MarkLine markLine = chart.AddChartComponent<MarkLine>();
+                //markLine.serieIndex = serieClsOutput.index;
+                //markLine.show = true;
+                
+                var curClsOutputList = dataManager.ClsOutputContainer.curClsOutputList;
+                var clsCommentDcit = dataManager.ClsOutputContainer.clsCommentDict;
+                int anStPos = dataManager.ClsOutputContainer.GetLowerBoundIndexOfCurClsOutputList((int)(dataManager.MainChartStTime_s * dataManager.AnnotationFs));
+                for (int i = anStPos; i < curClsOutputList.Count && curClsOutputList.Keys[i] <= (dataManager.MainChartStTime_s + DataManager.k_MainChartPeriod_s) * dataManager.AnnotationFs; i++)
+                {
+                    int ecgidx = (int)((curClsOutputList.Keys[i] - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
+                    double x = (double)ecgidx / dataManager.ECGDataFs;
+                    double y = dataManager.ECGData[ecgidx + stPos];
+                    string name = string.Format("({0})\n{1}", i+1, curClsOutputList.Values[i].arrythmia);
+                    int curTimeIndex = curClsOutputList.Keys[i];
+                    if (clsCommentDcit.ContainsKey(curTimeIndex))
+                    {
+                        if (clsCommentDcit[curTimeIndex].newArrythmia == ArrythmiaDict.k_EmptyArrythmia)
+                        {
+                            name = string.Format("{0}\n待复核", name);
+                        }
+                        else
+                        {
+                            name = string.Format("{0}\n复核为[{1}]", name, clsCommentDcit[curTimeIndex].newArrythmia);
+                        }
+                    }
+                    serieClsOutput.AddXYData(x, y, name);
+                }
+                serieClsOutput.RefreshLabel();
             }
             else
             {
-                dataManager.ReSetMainChartFocusTimeIndex();
+                serieClsOutput.show = false;
             }
+            #endregion
+
+            #region 绘制分类标签
+            // 绘制分类标签
+            if (dataManager.IsValidPlotClsLabel())
+            {
+                if (!serieClsLabel.show)
+                {
+                    serieClsLabel.show = true;
+                }
+
+                var curClsLabelList = dataManager.ClsLabelContainer.curClsLabelList;
+                int anStPos = dataManager.ClsLabelContainer.GetLowerBoundIndexOfCurClsLabelList((int)(dataManager.MainChartStTime_s * dataManager.AnnotationFs));
+                for (int i = anStPos; i < curClsLabelList.Count && curClsLabelList.Keys[i] <= (dataManager.MainChartStTime_s + DataManager.k_MainChartPeriod_s) * dataManager.AnnotationFs; i++)
+                {
+                    int ecgidx = (int)((curClsLabelList.Keys[i] - dataManager.MainChartStTime_s * dataManager.AnnotationFs) * dataManager.ECGDataFs / dataManager.AnnotationFs);
+                    double x = (double)ecgidx / dataManager.ECGDataFs;
+                    double y = dataManager.ECGData[ecgidx + stPos];
+                    serieClsLabel.AddXYData(x, y, string.Format("({0})\n{1}", i + 1, curClsLabelList.Values[i]));
+                }
+                serieClsLabel.RefreshLabel();
+            }
+            else
+            {
+                serieClsLabel.show = false;
+            }
+            #endregion
         }
         else
         {
@@ -305,6 +438,7 @@ public class PlotMainChart : MonoBehaviour
         }
         ecgTooltip.UpdateECGTooltip();
     }
+
 
     private void AddPQRSTSegAnnotation(in List<int> onList, in List<int> offList, Color32 color)
     {
@@ -325,7 +459,7 @@ public class PlotMainChart : MonoBehaviour
     private void AddSegAnnotationMarkArea(float stTime, float edTime, Color32 color)
     {
         MarkArea markArea = chart.AddChartComponent<MarkArea>();
-        markArea.serieIndex = serieECG.index;
+        markArea.serieIndex = serieRWave.index;
         markArea.itemStyle.color = color;
 
         markArea.start.type = MarkAreaType.None;
@@ -339,7 +473,7 @@ public class PlotMainChart : MonoBehaviour
     }
 
     // 此处时间为相对时间，而非从整个心电图开始的时间，单位（秒）
-    private void AddFocusMarkArea(float midTime, Color32 color, float alpha, float width = 0.2f)
+    private MarkArea AddFocusMarkArea(float midTime, Color32 color, float alpha, float width = 0.2f)
     {
         MarkArea markArea = chart.AddChartComponent<MarkArea>();
         markArea.serieIndex = serieECG.index;
@@ -355,7 +489,9 @@ public class PlotMainChart : MonoBehaviour
         float edTime = Math.Min(DataManager.k_MainChartPeriod_s - 0.001f, midTime + width / 2);
         markArea.end.xPosition = edTime / DataManager.k_MainChartPeriod_s * (1 - k_GridLeft - k_GridRight) * k_Width;
         markArea.end.yPosition = 0.665f * k_Height;
+        return markArea;
     }
+
 
     //private Tooltip ResetTooltip(bool flag)
     //{
