@@ -15,6 +15,9 @@ public class DataManager : MonoBehaviour
     public const int k_MainChartFastMovePeriod_s = 60; // 左右快速移动多少秒的心电图
     public const double k_MainChartDefaultFocusLeftTime_s = 1; // 默认剩余的高亮提示时间
     public const float k_CreateSegCommentMovePeroid_s = 0.01f; // 创建分割修改标记位置时微调一次移动多长时间
+    public readonly double[] k_JLECGDataFsArr = {348.8, 500, 1000, 697.5, 240, 250, 400};
+
+    public PlotMainChart mainChart;
 
     public string ECGFilePath; // 若filepath为null，则意味着数据未读取，不进行绘图
     public TMP_InputField InputField_ECGDataFilePath;
@@ -41,6 +44,21 @@ public class DataManager : MonoBehaviour
 
     public List<SegCommentData> SegCommentList = new List<SegCommentData>(); // 分割标记修改项列表，以AnnotationFs采样率为准的采样点下标
     public bool SegCommentListSavedFlag = false; // 标记分割标记修改项是否被修改未保存
+
+    public string ArrythmiaFliePath;
+    public ArrythmiaDict ArrythmiaDict = new ArrythmiaDict();
+    public TMP_InputField InputField_ArrythmiaFilePath;
+    public string ClassificationOutputPath;
+    public ClassificationOutputContainer ClsOutputContainer;
+    public bool ClsCommentSavedFlag = false; // 标记分割标记修改项是否被修改未保存
+    public TMP_InputField InputField_ClassificationOutputPath;
+    public Toggle Toggle_ShowClassificationOutput;
+
+
+    public string ClassificationLabelPath;
+    public ClassificationLabelContainer ClsLabelContainer = new ClassificationLabelContainer();
+    public TMP_InputField InputField_ClassificationLabelPath;
+    public Toggle Toggle_ShowClassificationLabel;
 
     public double AnnotationFs = 0; // 若采样率为零，则意味着该项未设置，不绘制标记
     public TMP_InputField InputField_AnnotationFs;
@@ -75,7 +93,6 @@ public class DataManager : MonoBehaviour
             try
             {
                 inputFile = System.IO.File.OpenText(filepath);
-
                 StringBuilder str = new StringBuilder();
                 while (inputFile.Peek() != -1)
                 {
@@ -146,6 +163,76 @@ public class DataManager : MonoBehaviour
         }
     }
 
+    public void OnClick_Button_SaveCurECGData()
+    {
+        if (!IsValidPlotMainChart())
+        {
+            MessageBox.DisplayMessageBox("导出失败", "当前显示心电图为空", true, null);
+            return;
+        }
+        int fsIndex = Tool.GetSimilarValueIndexInArr(k_JLECGDataFsArr, ECGDataFs);
+        if (fsIndex < 0)
+        {
+            MessageBox.DisplayMessageBox("导出失败", string.Format("不支持当前数据采样率"), true, null);
+        }
+
+        string defaultFileName = string.Format(
+            "{0}_{1}-{2}-{3}_{4}-{5}-{6}.ecg", System.IO.Path.GetFileNameWithoutExtension(ECGFilePath), InputField_MainChartStHour.text, InputField_MainChartStMinute.text, InputField_MainChartStSecond.text,
+            InputField_MainChartEdHour.text, InputField_MainChartEdMinute.text, InputField_MainChartEdSecond.text
+            );
+        string filepath = OpenFileDialog.GetSavePath("ECG", "保存分类输出复核文件", System.IO.Path.GetDirectoryName(ECGFilePath), defaultFileName);
+        if (filepath != null)
+        {
+            try
+            {
+                using (BinaryWriter writer = new BinaryWriter(File.Open(filepath, FileMode.Create)))
+                {
+                    ushort leadType = 101; // 10导联系统，共八个导联
+                    writer.Write(leadType);
+                    //byte leadsValidBits = 0b00000001; // 仅II导联存在数据
+                    byte leadsValidBits = 0b11111111; // 仅II导联存在数据
+                    writer.Write(leadsValidBits);
+                    double mv2ad = 104.8; // 转换符值，1ad等于mv2ad个mv
+                    byte adhz = ((byte)fsIndex); // 高位符值类型，低位采样率类别；符值类型标识为0（1.0/104.8 AD2MV）
+                    writer.Write(adhz);
+                    byte filterBits = 0; // 滤波参数
+                    byte QRSPaceValidBits = 0; // 附带信息
+                    writer.Write(filterBits);
+                    writer.Write(QRSPaceValidBits);
+                    DateTime now = DateTime.UtcNow;
+                    TimeSpan timeSpan = now - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    long beginTime = (long)timeSpan.TotalMilliseconds; // 系统当前时间戳
+                    writer.Write(beginTime);
+
+                    int frameCount = (int)(k_MainChartPeriod_s * ECGDataFs);
+                    writer.Write(frameCount);
+                    for (int i = 0; i < 6; i++)
+                    {
+                        writer.Write((byte)0);
+                    }
+                    int stECGIndex = (int)(MainChartStTime_s * ECGDataFs);
+                    
+                    for (int i = 0; i < frameCount; i++)
+                    {
+                        for (int lead = 0; lead < 8; lead++)
+                        {
+                            short value = (short)(ECGData[stECGIndex + i] * mv2ad);
+                            writer.Write(value);
+                        }
+                    }
+                }
+                string patientFilepath = filepath.Substring(0, filepath.Length-4) + ".txt";
+                string patientContent = string.Format("姓名：匿名\n病人注释：数据源:{0}；单导联数据，仅II导联有效。", defaultFileName.Substring(0, defaultFileName.Length-4));
+                File.WriteAllText(patientFilepath, patientContent, new UTF8Encoding(false)); // 不带BOM头的UTF-8编码
+            }
+            catch (Exception e)
+            {
+                Debug.LogError(e);
+                MessageBox.DisplayMessageBox("导出失败", "导出过程中出错", true, null);
+            }
+        }
+    }
+
     public void OnClick_Button_LoadRPeakAnnotation()
     {
         string filepath = OpenFileDialog.GetFilePath("TXT", "选择R波波峰标记文件");
@@ -157,6 +244,10 @@ public class DataManager : MonoBehaviour
                 string[] lines = System.IO.File.ReadAllLines(filepath);
                 foreach (string line in lines)
                 {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
                     string[] arr = line.Split(",");
                     for (int i = 1; i < arr.Length; i++) // 跳过第一个，应该是文件名
                     {
@@ -229,7 +320,7 @@ public class DataManager : MonoBehaviour
                 TOffList.Sort();
                 POnList.Sort();
                 POffList.Sort();
-                RPeakFilePath = filepath;
+                SegFilePath = filepath;
                 InputField_SegFilePath.text = filepath;
                 Toggle_ShowSegAnnotation.interactable = true;
             }
@@ -250,6 +341,157 @@ public class DataManager : MonoBehaviour
             finally
             {
                 Toggle_ShowSegAnnotation.isOn = true;
+            }
+        }
+    }
+
+    public void OnClick_Button_LoadArrythmiaFile()
+    {
+        string filepath = OpenFileDialog.GetFilePath("TXT", "选择心律类别文件");
+        if (filepath != null)
+        {
+            ArrythmiaDict.Clear();
+            try
+            {
+                string[] lines = System.IO.File.ReadAllLines(filepath);
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+                    string arrythmia = line.Trim();
+                    if (!string.IsNullOrEmpty(arrythmia))
+                    {
+                        ArrythmiaDict.AddArrythmia(arrythmia);
+                    }
+                }
+                ArrythmiaFliePath = filepath;
+                InputField_ArrythmiaFilePath.text = filepath;
+                Toggle_ShowClassificationOutput.interactable = ClassificationOutputPath != null;
+                
+            }
+            catch (Exception e)
+            {
+                MessageBox.DisplayMessageBox("错误", "文件读取出错。", true, null);
+                Debug.LogError(e);
+                ArrythmiaFliePath = null;
+                ArrythmiaDict.Clear();
+                InputField_RPeakFilePath.text = "";
+                Toggle_ShowClassificationOutput.interactable = false;
+            }
+            finally
+            {
+                Toggle_ShowClassificationOutput.isOn = true;
+                Toggle Toggle_ClsAnnotationTab = GameObject.Find("Toggle_ClsAnnotationTab").GetComponent<Toggle>();
+                Toggle_ClsAnnotationTab.isOn = false;
+                Toggle_ClsAnnotationTab.interactable = false;
+            }
+        }
+    }
+
+    public void OnClick_Button_LoadClassificationOutput()
+    {
+        if (string.IsNullOrEmpty(ArrythmiaFliePath))
+        {
+            MessageBox.DisplayMessageBox("提示", "请先载入心律类别文件。", true, null);
+            return;
+        }
+
+        string filepath = OpenFileDialog.GetFilePath("TXT", "选择模型分类输出文件");
+        if (filepath != null)
+        {
+            ClsOutputContainer.Clear();
+            try
+            {
+                string[] lines = System.IO.File.ReadAllLines(filepath);
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+                    string[] arr = line.Trim().Split(',');
+                    if (arr.Length != 4)
+                    {
+                        throw new Exception("模型分类输出文件一行不是四个元素");
+                    }
+                    int timeIndex = int.Parse(arr[0]);
+                    int rPeakTimeIndex = int.Parse(arr[1]);
+                    string arrythmia = arr[2];
+                    if (!string.IsNullOrEmpty(arrythmia))
+                    {
+                        ClsOutputContainer.AddClsOutput(new ClassificationOutputData(timeIndex, rPeakTimeIndex, arrythmia));
+                    }
+                }
+                ClsOutputContainer.InitCurClsOutputList();
+                ClassificationOutputPath = filepath;
+                InputField_ClassificationOutputPath.text = filepath;
+                Toggle_ShowClassificationOutput.interactable = true;
+            }
+            catch (Exception e)
+            {
+                MessageBox.DisplayMessageBox("错误", "文件读取出错。", true, null);
+                Debug.LogError(e); 
+                ClassificationOutputPath = null;
+                ClsOutputContainer.Clear();
+                InputField_ClassificationOutputPath.text = "";
+                Toggle_ShowClassificationOutput.interactable = false;
+            }
+            finally
+            {
+                Toggle_ShowClassificationOutput.isOn = true;
+                Toggle Toggle_ClsAnnotationTab = GameObject.Find("Toggle_ClsAnnotationTab").GetComponent<Toggle>();
+                Toggle_ClsAnnotationTab.isOn = false;
+                Toggle_ClsAnnotationTab.interactable = false;
+            }
+        }
+    }
+
+    public void OnClick_Button_LoadClassificationLabel()
+    {
+        string filepath = OpenFileDialog.GetFilePath("TXT", "选择分类标签文件");
+        if (filepath != null)
+        {
+            ClsLabelContainer.Clear();
+            try
+            {
+                string[] lines = System.IO.File.ReadAllLines(filepath);
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+                    string[] arr = line.Trim().Split(',');
+                    if (arr.Length != 2)
+                    {
+                        throw new Exception("模型分类输出文件一行不是两个元素");
+                    }
+                    int timeIndex = int.Parse(arr[0]);
+                    string arrythmia = arr[1];
+                    ClsLabelContainer.AddClsLabel(timeIndex, arrythmia);
+                }
+                ClsLabelContainer.InitCurClsLabelList();
+                ClassificationLabelPath = filepath;
+                InputField_ClassificationLabelPath.text = filepath;
+                Toggle_ShowClassificationLabel.interactable = true;
+            }
+            catch (Exception e)
+            {
+                MessageBox.DisplayMessageBox("错误", "文件读取出错。", true, null);
+                Debug.LogError(e);
+                ClassificationLabelPath = null;
+                ClsLabelContainer.Clear();
+                InputField_ClassificationLabelPath.text = "";
+                Toggle_ShowClassificationLabel.interactable = false;
+            }
+            finally
+            {
+                Toggle_ShowClassificationLabel.isOn = true;
+                Toggle Toggle_ClsAnnotationTab = GameObject.Find("Toggle_ClsAnnotationTab").GetComponent<Toggle>();
+                Toggle_ClsAnnotationTab.isOn = false;
+                Toggle_ClsAnnotationTab.interactable = false;
             }
         }
     }
@@ -374,7 +616,7 @@ public class DataManager : MonoBehaviour
         try
         {
             double fs = Convert.ToDouble(fsstr);
-if (fs > 0.01)
+            if (fs > 0.01)
             {
                 ECGDataFs = fs;
             }
@@ -411,27 +653,11 @@ if (fs > 0.01)
         }
     }
 
+    
+
     private void Awake()
     {
-        InputField_ECGDataFilePath = GameObject.Find("InputField_ECGDataFilePath").GetComponent<TMP_InputField>();
-        InputField_ECGDataFs = GameObject.Find("InputField_ECGDataFs").GetComponent<TMP_InputField>();
-        InputField_MainChartStHour = GameObject.Find("InputField_MainChartStHour").GetComponent<TMP_InputField>();
-        InputField_MainChartStMinute = GameObject.Find("InputField_MainChartStMinute").GetComponent<TMP_InputField>();
-        InputField_MainChartStSecond = GameObject.Find("InputField_MainChartStSecond").GetComponent<TMP_InputField>();
-        InputField_MainChartEdHour = GameObject.Find("InputField_MainChartEdHour").GetComponent<TMP_InputField>();
-        InputField_MainChartEdMinute = GameObject.Find("InputField_MainChartEdMinute").GetComponent<TMP_InputField>();
-        InputField_MainChartEdSecond = GameObject.Find("InputField_MainChartEdSecond").GetComponent<TMP_InputField>();
-        Text_ECGDataLength = GameObject.Find("Text_ECGDataLength").GetComponent<TMP_Text>();
-        InputField_AnnotationFs = GameObject.Find("InputField_AnnotationFs").GetComponent<TMP_InputField>();
-        InputField_RPeakFilePath = GameObject.Find("InputField_RPeakFilePath").GetComponent<TMP_InputField>();
-        Toggle_ShowRPeakAnnotation = GameObject.Find("Toggle_ShowRPeakAnnotation").GetComponent<Toggle>();
-        InputField_SegFilePath = GameObject.Find("InputField_SegFilePath").GetComponent<TMP_InputField>();
-        Toggle_ShowSegAnnotation = GameObject.Find("Toggle_ShowSegAnnotation").GetComponent<Toggle>();
-        Slider_MainChartTime = GameObject.Find("Slider_MainChartTime").GetComponent<Slider>();
-        Button_MainChartMoveForward = GameObject.Find("Button_MainChartMoveForward").GetComponent<Button>();
-        Button_MainChartFastMoveForward = GameObject.Find("Button_MainChartFastMoveForward").GetComponent<Button>();
-        Button_MainChartMoveBackward = GameObject.Find("Button_MainChartMoveBackward").GetComponent<Button>();
-        Button_MainChartFastMoveBackward = GameObject.Find("Button_MainChartFastMoveBackward").GetComponent<Button>();
+        ClsOutputContainer = new ClassificationOutputContainer(ArrythmiaDict);
     }
 
     // Start is called before the first frame update
@@ -450,6 +676,7 @@ if (fs > 0.01)
                 MainChartStTime_s += k_MainChartMovePeriod_s;
                 MainChartStTime_s = Math.Min(MainChartStTime_s, (int)(ECGData.Count / ECGDataFs) - k_MainChartPeriod_s);
                 UpdateMainChartStEdTime();
+                mainChart.NeedUpdate();
             }
         }
         if (Input.GetKeyDown(KeyCode.LeftArrow))
@@ -459,6 +686,7 @@ if (fs > 0.01)
                 MainChartStTime_s -= k_MainChartMovePeriod_s;
                 MainChartStTime_s = Math.Max(MainChartStTime_s, 0);
                 UpdateMainChartStEdTime();
+                mainChart.NeedUpdate();
             }
         }
     }
@@ -495,13 +723,18 @@ if (fs > 0.01)
 
     public bool IsValidPlotSegAnnotation()
     {
-        return AnnotationFs > 0 && SegFilePath != null && Toggle_ShowSegAnnotation.isOn;
+        return AnnotationFs > 0 && !string.IsNullOrEmpty(SegFilePath) && Toggle_ShowSegAnnotation.isOn;
     }
 
     // TODO
-    public bool IsValidPlotClsAnnotation()
+    public bool IsValidPlotClsOutput()
     {
-        return false;
+        return AnnotationFs > 0 && !string.IsNullOrEmpty(ArrythmiaFliePath) && !string.IsNullOrEmpty(ClassificationOutputPath) && Toggle_ShowClassificationOutput.isOn;
+    }
+
+    public bool IsValidPlotClsLabel()
+    {
+        return AnnotationFs > 0 && !string.IsNullOrEmpty(ClassificationLabelPath) && Toggle_ShowClassificationLabel.isOn;
     }
 
     public int GetLowerBoundIndexOfSegCommentList(int timeIndex)
@@ -580,7 +813,7 @@ public class OpenFileDialog
     // multiFile 是否可打开多个文件
     static public string GetFilePath(string type, string title, bool multiFile = false)
     {
-
+        string originalDirectory = Directory.GetCurrentDirectory();
         OpenFileDlg pth = new OpenFileDlg();
         pth.structSize = System.Runtime.InteropServices.Marshal.SizeOf(pth);
 
@@ -598,7 +831,8 @@ public class OpenFileDialog
         pth.title = title;
         //pth.defExt = "TXT";//显示文件类型
         pth.defExt = "";//显示文件类型
-        pth.flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008;
+        //pth.flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008;
+        pth.flags = 0x00080000 | 0x00000800 | 0x00000008;
         if (multiFile)
         {
             pth.flags |= 0x00000200;
@@ -606,6 +840,7 @@ public class OpenFileDialog
         if (OpenFileDialog.GetOpenFileName(pth))
         {
             string filepath = pth.file;//选择的文件路径;
+            Directory.SetCurrentDirectory(originalDirectory);
             return filepath;
             //DirectoryInfo i = new DirectoryInfo(filepath);
 
@@ -614,13 +849,16 @@ public class OpenFileDialog
 
             //ProjectData openprodata = new ProjectData();
             //openprodata.proname = Path.GetFileNameWithoutExtension(path);//返回路径的最后一个文件夹名称
+            
         }
+        Directory.SetCurrentDirectory(originalDirectory);
         return null;
     }
 
     // 打开资源管理器对话框，返回用于保存的文件路径，若未进行选择，返回null
     static public string GetSavePath(string type, string dlgTitle, string initialDir, string initialFileName)
     {
+        string originalDirectory = Directory.GetCurrentDirectory();
         OpenFileDlg pth = new OpenFileDlg();
         pth.structSize = System.Runtime.InteropServices.Marshal.SizeOf(pth);
         pth.filter = "文件(*." + type + ")\0*." + type + "\0";//筛选文件类型
@@ -645,6 +883,7 @@ public class OpenFileDialog
         if (OpenFileDialog.GetSaveFileName(pth))
         {
             string filepath = pth.file;//选择的文件路径;
+            Directory.SetCurrentDirectory(originalDirectory);
             return filepath;
             //DirectoryInfo i = new DirectoryInfo(filepath);
             ////上级目录
@@ -652,7 +891,9 @@ public class OpenFileDialog
 
             //ProjectData openprodata = new ProjectData();
             //openprodata.proname = Path.GetFileNameWithoutExtension(path);//返回路径的最后一个文件夹名称
+            
         }
+        Directory.SetCurrentDirectory(originalDirectory);
         return null;
     }
 }

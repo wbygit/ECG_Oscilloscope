@@ -10,36 +10,47 @@ public class ECGTooltip : MyTooltipBase
 
     [SerializeField]
     private DataManager dataManager;
-    private SegCommentData m_CurSegCommentData;
+    private List<SegCommentData> m_SegCommentDataList = new List<SegCommentData>();
 
     // 在每一帧开始调用各种Add函数前调用
     public void ClearData()
     {
-        m_CurSegCommentData = null;
+        m_SegCommentDataList.Clear();
     }
 
     public void AddSegComment(SegCommentData data)
     {
+        m_SegCommentDataList.Add(data);
+    }
+
+    public SegCommentData UpdateSegComment()
+    {
         if (dataManager.PointerTimeAnnotationIndex == -1)
         {
-            return;
+            return null;
         }
-        if (Math.Abs(data.timeIndex - dataManager.PointerTimeAnnotationIndex) < (int)(k_TimeThreshold * dataManager.AnnotationFs))
+        SegCommentData curSegCommentData = null;
+        foreach (SegCommentData data in m_SegCommentDataList)
         {
-            if (m_CurSegCommentData == null || Math.Abs(data.timeIndex - dataManager.PointerTimeAnnotationIndex) < Math.Abs(m_CurSegCommentData.timeIndex - dataManager.PointerTimeAnnotationIndex))
+            if (Math.Abs(data.timeIndex - dataManager.PointerTimeAnnotationIndex) < (int)(k_TimeThreshold * dataManager.AnnotationFs))
             {
-                m_CurSegCommentData = data;
+                if (curSegCommentData == null || Math.Abs(data.timeIndex - dataManager.PointerTimeAnnotationIndex) < Math.Abs(curSegCommentData.timeIndex - dataManager.PointerTimeAnnotationIndex))
+                {
+                    curSegCommentData = data;
+                }
             }
         }
+        return curSegCommentData;
     }
 
     // 加载完数据后调用
     public void UpdateECGTooltip()
     {
         string newTip = "";
-        if (m_CurSegCommentData != null)
+        SegCommentData curSegCommentData = UpdateSegComment();
+        if (curSegCommentData != null)
         {
-            newTip += m_CurSegCommentData.GetTip(dataManager);
+            newTip += curSegCommentData.GetTip(dataManager);
         }
         if (newTip != "")
         {

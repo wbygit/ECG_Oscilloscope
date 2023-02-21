@@ -53,7 +53,7 @@ public class SegComments : MonoBehaviour
 
     public void OnClick_Button_ClearSegComments()
     {
-        MessageBox.DisplayMessageBox("是否清空分割标记修改项", "正在编辑的所有分割标记将被清空，不会影响本地文件。", dismissable: true, dissmissText: "取消"
+        MessageBox.DisplayMessageBox("是否清空分割标记修改项", "正在编辑的所有分割修改标记将被清空，不会影响本地文件。", dismissable: true, dissmissText: "取消"
             , confirm: true, confirmText: "确认", confirmButton:
         () =>
         {
@@ -62,7 +62,6 @@ public class SegComments : MonoBehaviour
             UpdateSegCommentListLength();
             ClearSegCommentItem();
         });
-        
     }
 
     public void OnClick_Button_DeleteSegComment()
@@ -192,12 +191,6 @@ public class SegComments : MonoBehaviour
             ScrollView_SegComments.verticalNormalizedPosition = GetScrollPositionFocusSelected();
             UpdateSegCommentsWindow();
             OnClick_Button_LocateSegCommentOnChart();
-            //float newPosition = 1f;
-            //if (dataManager.SegCommentList.Count > k_MaxVirualListLength && segCommentIndex >= dataManager.SegCommentList.Count - 2 * k_VirtualListLoad)
-            //{
-            //    newPosition = 0f;
-            //}
-            //ScrollView_SegComments.verticalNormalizedPosition = newPosition;
             
         }
         catch (Exception e)
@@ -310,7 +303,7 @@ public class SegComments : MonoBehaviour
         }
         else
         {
-            Text_SegCommentSaveStatus.text = "有修改，请及时保存";
+            Text_SegCommentSaveStatus.text = "有修改，请及时保存 ";
             Text_SegCommentSaveStatus.color = Color.red;
         }
     }
